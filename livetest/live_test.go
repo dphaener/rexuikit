@@ -1152,10 +1152,9 @@ func TestLuaCanWriteFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// $HOME/.local/state/forge/prewarm, computed from HOME only, as
-	// surface.PrewarmDir does; duplicated rather than imported so this
-	// test proves Rex, not surface.
-	dir := filepath.Join(home, ".local", "state", "forge", "prewarm")
+	// A directory under $HOME that the test owns, so it proves Rex can
+	// write there and nothing about any application's state layout.
+	dir := filepath.Join(home, ".local", "state", "rexuikit-livetest")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}

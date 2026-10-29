@@ -980,32 +980,11 @@ func TestLabels(t *testing.T) {
 	}
 }
 
-// TestContextPath: sanitizing is byte-wise (a multi-byte rune becomes one
-// '_' per byte, which is what Lua's byte-oriented gsub produces) and the
-// path is under the HOME-derived dir.
-func TestContextPath(t *testing.T) {
-	dir := PrewarmDir("/Users/me")
-	if dir != "/Users/me/.local/state/forge/prewarm" {
-		t.Fatalf("PrewarmDir = %q", dir)
-	}
-	tests := []struct{ session, want string }{
-		{"session:0190f3a2-7c1e-7b2a-9d4f-0123456789ab", "session_0190f3a2-7c1e-7b2a-9d4f-0123456789ab-new.json"},
-		{"a/b\\c d.e", "a_b_c_d_e-new.json"},
-		{"é", "__-new.json"},
-		{"ok_Z-9", "ok_Z-9-new.json"},
-	}
-	for _, tt := range tests {
-		if got := ContextPath(dir, tt.session, "new"); got != filepath.Join(dir, tt.want) {
-			t.Errorf("ContextPath(%q) = %q, want %q", tt.session, got, tt.want)
-		}
-	}
-}
-
 // TestContextRoundTrip writes and reads a context file, overwriting an
 // existing one without leaving temp files behind.
 func TestContextRoundTrip(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "prewarm")
-	path := ContextPath(dir, "session:s", "new")
+	path := filepath.Join(dir, "session_s-new.json")
 	pc := PlacementContext{OpenerBlockID: "block:o", Cwd: "/w", SessionID: "session:s", WindowID: "window:w", Timestamp: 1798000000}
 	for i := 0; i < 2; i++ {
 		pc.Timestamp += int64(i)

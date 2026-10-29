@@ -125,8 +125,9 @@ on screen. It is the method behind the TTFP numbers.
 
 Applications import this module by tagged version. Keep application policy in
 the application: which actions warm, generated Lua, and state paths. `surface`
-currently exports `PrewarmDir` and `ContextPath`, which forge's generated Lua
-mirrors. Moving them is a later decision.
+exports the warm label prefix (`WarmPrefix`) because it identifies its own warm
+blocks. Where an application keeps its pre-warm files is the application's
+choice.
 
 Rex is a 0.0.x beta. The live suite is the contract. Run it after every Rex
 upgrade, and treat a failure as a Rex change, not a rexuikit bug.

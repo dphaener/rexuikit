@@ -206,44 +206,6 @@ func (pc PlacementContext) For(self string) bool {
 	return self == "" || pc.WarmBlockID == "" || pc.WarmBlockID == self
 }
 
-// PrewarmDir is the directory for placement context files, from home only.
-// Config Lua runs with the Rex server's environment, which planning could
-// not observe, so XDG_STATE_HOME is deliberately ignored: forge bakes this
-// absolute path into the Lua at install time, and both sides must agree.
-func PrewarmDir(home string) string {
-	return filepath.Join(home, ".local", "state", "forge", "prewarm")
-}
-
-// ContextPath is the context file for action in sessionID: one file per
-// session, so two Rex sessions opening the same action cannot clobber each
-// other. Every byte of the session id outside [A-Za-z0-9_-] becomes '_'
-// (session ids are `session:<uuid>`), which the Lua mirrors byte for byte.
-// action must be a plain token such as "new".
-func ContextPath(dir, sessionID, action string) string {
-	return filepath.Join(dir, poolFile(sessionID, action)+".json")
-}
-
-// LockPath is the lockfile that keeps two `forge prewarm` runs for action in
-// sessionID from starting a warm block each. It sits beside ContextPath's
-// file and shares its name.
-func LockPath(dir, sessionID, action string) string {
-	return filepath.Join(dir, poolFile(sessionID, action)+".lock")
-}
-
-// poolFile is the file name, without extension, shared by a session's and
-// action's context and lock files.
-func poolFile(sessionID, action string) string {
-	b := []byte(sessionID)
-	for i, c := range b {
-		switch {
-		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '_', c == '-':
-		default:
-			b[i] = '_'
-		}
-	}
-	return string(b) + "-" + action
-}
-
 // WriteContext writes pc to path atomically: a temp file in the same
 // directory renamed over path, so a warm program polling the file never
 // reads half of it.
