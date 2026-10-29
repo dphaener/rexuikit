@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -41,6 +42,11 @@ const (
 
 	callTimeout = 10 * time.Second
 	waitTimeout = 5 * time.Second
+
+	// throwawayLabel names the one session the suite creates for every
+	// mutating call that is not a layer or block in the user's own window.
+	// TestMain destroys any session with this label left by a crashed run.
+	throwawayLabel = labelPrefix + "-session"
 
 	// appResizeTimeout bounds the wait for the Rex app to claim and size a
 	// disowned block. The app answers in well under a second when it is
@@ -109,6 +115,7 @@ func run(m *testing.M) int {
 	h := newHub(c)
 
 	sweep(ctx, c, session, "stale")
+	sweepSessions(ctx, c, session, "stale")
 	window, focused := "", ""
 	for _, w := range att.View.Windows {
 		for _, l := range w.Layers {
@@ -140,6 +147,7 @@ func run(m *testing.M) int {
 		cctx, ccancel := context.WithTimeout(context.Background(), callTimeout)
 		defer ccancel()
 		sweep(cctx, c, session, "leftover")
+		sweepSessions(cctx, c, session, "leftover")
 		restoreFocus(cctx, c, session, window, focused)
 	}()
 	return m.Run()
@@ -164,6 +172,46 @@ func sweep(ctx context.Context, c *client.Client, session, what string) {
 			fmt.Fprintf(os.Stderr, "livetest: close %s block %s: %v\n", what, b.BlockID, err)
 		}
 	}
+}
+
+// sweepSessions destroys every session labeled throwawayLabel, never the
+// user's own. Destroying needs the connection attached to the session, so
+// it attaches first.
+func sweepSessions(ctx context.Context, c *client.Client, userSession, what string) {
+	sessions, err := c.ListSessions(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "livetest: list sessions for the %s sweep: %v\n", what, err)
+		return
+	}
+	for _, s := range sessions {
+		if s.Label != throwawayLabel || s.SessionID == userSession {
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "livetest: destroying %s session %s (%s)\n", what, s.SessionID, s.Label)
+		if err := destroySession(ctx, c, s.SessionID); err != nil {
+			fmt.Fprintf(os.Stderr, "livetest: destroy %s session %s: %v\n", what, s.SessionID, err)
+		}
+	}
+}
+
+// destroySession attaches the connection to the session, then destroys it:
+// session.destroy fails with conflict unless the caller is attached. A
+// session that is already gone is not an error.
+func destroySession(ctx context.Context, c *client.Client, id string) error {
+	if _, err := c.Attach(ctx, id); err != nil {
+		if goneErr(err) {
+			return nil
+		}
+		return fmt.Errorf("attach before destroy: %w", err)
+	}
+	if err := c.DestroySession(ctx, id); err != nil && !goneErr(err) {
+		return err
+	}
+	return nil
+}
+
+func goneErr(err error) bool {
+	return errors.Is(err, client.ErrNotFound) || errors.Is(err, client.ErrSessionNotFound)
 }
 
 // restoreFocus gives focus back to the block that had it before the run.
@@ -1183,5 +1231,384 @@ func TestLuaCanWriteFile(t *testing.T) {
 	}
 	if _, err := os.Stat(final + ".tmp"); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("temp file still present after os.rename (stat err %v)", err)
+	}
+}
+
+// throwaway is the suite's one disposable session: the only place the
+// wrapper tests create sessions or windows, so the user's own windows are
+// never touched.
+type throwaway struct {
+	id     string
+	window string // the first window, labeled "shell"
+	block  string // that window's terminal
+}
+
+// createThrowaway makes the session through live.c, attaches live.c to it
+// and destroys it in t.Cleanup. Cleanups are LIFO: a test that registers
+// its own cleanup after this call (restoring the app's selection, say) runs
+// it before the session goes away.
+func createThrowaway(t *testing.T) throwaway {
+	t.Helper()
+	res, err := live.c.CreateSession(ctxT(t), client.CreateSessionArgs{
+		Label: throwawayLabel, WindowLabel: "shell", Cwd: live.tmp,
+	})
+	if err != nil {
+		t.Fatalf("session.create: %v", err)
+	}
+	t.Cleanup(func() { destroyQuietly(t, res.SessionID) })
+	th := throwaway{id: res.SessionID, window: res.FirstWindowID(), block: res.FirstBlockID()}
+	if th.id == "" || th.window == "" || th.block == "" {
+		t.Fatalf("session.create result lacks a session, window or block: %+v", res)
+	}
+	if _, err := live.c.Attach(ctxT(t), th.id); err != nil {
+		t.Fatalf("attach throwaway session: %v", err)
+	}
+	return th
+}
+
+// destroyQuietly attaches live.c to the session and destroys it, on a fresh
+// context so a test that used up its own still cleans up.
+func destroyQuietly(t *testing.T, id string) {
+	ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
+	defer cancel()
+	if err := destroySession(ctx, live.c, id); err != nil {
+		t.Errorf("cleanup destroy session %s: %v", id, err)
+	}
+}
+
+// sessionWindow reads one window of the session from session.view.
+func sessionWindow(t *testing.T, session, window string) (client.Window, client.View) {
+	t.Helper()
+	v, err := live.c.View(ctxT(t), session)
+	if err != nil {
+		t.Fatalf("session.view %s: %v", session, err)
+	}
+	for _, w := range v.Windows {
+		if w.WindowID == window {
+			return w, v
+		}
+	}
+	return client.Window{}, v
+}
+
+// sleepWindow opens a second, unfocused window in the throwaway session
+// whose program is a shell-less sleep.
+func sleepWindow(t *testing.T, th throwaway, label string) client.NewWindowResult {
+	t.Helper()
+	focus := false
+	w, err := live.c.NewWindow(ctxT(t), client.NewWindowArgs{
+		SessionID: th.id, Label: label, Focus: &focus,
+		Layout: termLayout(labelPrefix+"-sleep", []string{"/bin/sleep", "600"}, nil),
+	})
+	if err != nil {
+		t.Fatalf("session.new_window: %v", err)
+	}
+	return w
+}
+
+// TestCreateSession: session.create with one initial terminal window makes
+// a session that session.list shows under its label, whose first window and
+// block ids the result names and whose window carries the requested label.
+// session.destroy then removes it. Live exception: this test creates and
+// destroys a session, always labeled throwawayLabel.
+func TestCreateSession(t *testing.T) {
+	res, err := live.c.CreateSession(ctxT(t), client.CreateSessionArgs{
+		Label: throwawayLabel, WindowLabel: "shell", Cwd: live.tmp,
+	})
+	if err != nil {
+		t.Fatalf("session.create: %v", err)
+	}
+	t.Cleanup(func() { destroyQuietly(t, res.SessionID) })
+	if res.SessionID == "" || res.FirstWindowID() == "" || res.FirstBlockID() == "" {
+		t.Fatalf("session.create result lacks a session, window or block: %+v", res)
+	}
+	listed := func() bool {
+		ss, err := live.c.ListSessions(ctxT(t))
+		if err != nil {
+			t.Fatalf("session.list: %v", err)
+		}
+		for _, s := range ss {
+			if s.SessionID == res.SessionID {
+				if s.Label != throwawayLabel {
+					t.Errorf("session label = %q, want %q", s.Label, throwawayLabel)
+				}
+				return true
+			}
+		}
+		return false
+	}
+	if !listed() {
+		t.Fatalf("created session %s missing from session.list", res.SessionID)
+	}
+	if _, err := live.c.Attach(ctxT(t), res.SessionID); err != nil {
+		t.Fatalf("attach: %v", err)
+	}
+	w, _ := sessionWindow(t, res.SessionID, res.FirstWindowID())
+	if w.WindowID == "" || w.Label != "shell" {
+		t.Errorf("first window = %+v, want id %q labeled \"shell\"", w, res.FirstWindowID())
+	}
+	if err := live.c.DestroySession(ctxT(t), res.SessionID); err != nil {
+		t.Fatalf("session.destroy: %v", err)
+	}
+	if listed() {
+		t.Errorf("destroyed session %s still in session.list", res.SessionID)
+	}
+}
+
+// TestFocusWindow: session.focus_window makes the named window the
+// session's active window, in either direction, and a window the session
+// does not hold fails with not_found. Runs in the throwaway session.
+func TestFocusWindow(t *testing.T) {
+	th := createThrowaway(t)
+	second := sleepWindow(t, th, "rexuikit-livetest-second")
+	active := func(want string) {
+		t.Helper()
+		eventually(t, "active window "+want, func() bool {
+			_, v := sessionWindow(t, th.id, th.window)
+			return v.ActiveWindowID == want
+		})
+	}
+	if _, err := live.c.FocusWindow(ctxT(t), th.id, second.WindowID); err != nil {
+		t.Fatalf("focus_window second: %v", err)
+	}
+	active(second.WindowID)
+	if _, err := live.c.FocusWindow(ctxT(t), th.id, th.window); err != nil {
+		t.Fatalf("focus_window first: %v", err)
+	}
+	active(th.window)
+	if _, err := live.c.FocusWindow(ctxT(t), th.id, "window-that-does-not-exist"); !errors.Is(err, client.ErrNotFound) {
+		t.Errorf("focus_window of an unknown window = %v, want not_found", err)
+	}
+}
+
+// TestSetWindowLabel: session.set_window_label renames a window as
+// session.view reports it, restoring the original label puts it back, and
+// an empty label drops the custom one. Runs in the throwaway session.
+func TestSetWindowLabel(t *testing.T) {
+	th := createThrowaway(t)
+	const renamed = labelPrefix + "-renamed"
+	label := func(want string) {
+		t.Helper()
+		eventually(t, "window label "+want, func() bool {
+			w, _ := sessionWindow(t, th.id, th.window)
+			return w.Label == want
+		})
+	}
+	label("shell")
+	if _, err := live.c.SetWindowLabel(ctxT(t), th.id, th.window, renamed); err != nil {
+		t.Fatalf("set_window_label: %v", err)
+	}
+	label(renamed)
+	if _, err := live.c.SetWindowLabel(ctxT(t), th.id, th.window, "shell"); err != nil {
+		t.Fatalf("restore window label: %v", err)
+	}
+	label("shell")
+	if _, err := live.c.SetWindowLabel(ctxT(t), th.id, th.window, renamed); err != nil {
+		t.Fatalf("set_window_label: %v", err)
+	}
+	if _, err := live.c.SetWindowLabel(ctxT(t), th.id, th.window, ""); err != nil {
+		t.Fatalf("clear window label: %v", err)
+	}
+	eventually(t, "the custom label to clear", func() bool {
+		w, _ := sessionWindow(t, th.id, th.window)
+		return w.Label != renamed
+	})
+}
+
+// TestListClientsSeesApp: client.list with kinds ["app"] returns only
+// clients that connected as kind app, and at least one is there when the Rex
+// app is attached to the session. The unfiltered list holds this suite's own
+// connection. forge's watcher reads session_ids and principal.pid from these
+// entries for its focus rule.
+func TestListClientsSeesApp(t *testing.T) {
+	requireApp(t)
+	apps, err := live.c.ListClients(ctxT(t), "", "app")
+	if err != nil {
+		t.Fatalf("client.list kinds=app: %v", err)
+	}
+	if len(apps) == 0 {
+		t.Fatalf("client.list kinds=app returned no client, but session.list_clients saw %d app(s)", len(live.apps))
+	}
+	for _, a := range apps {
+		if a.Info.Kind != "app" {
+			t.Errorf("kinds=app returned %s with kind %q", a.ClientID, a.Info.Kind)
+		}
+	}
+	all, err := live.c.ListClients(ctxT(t), "")
+	if err != nil {
+		t.Fatalf("client.list: %v", err)
+	}
+	found := false
+	for _, c := range all {
+		found = found || c.ClientID == live.clientID
+	}
+	if !found {
+		t.Errorf("unfiltered client.list lacks this suite's own client %s", live.clientID)
+	}
+}
+
+// TestPerformSessionSelect: client.perform of session.select on the app
+// client runs on that client (performed_by names it) and switches the app to
+// the throwaway session and window. A refused answer means Remote Control is
+// off, and the test skips. The user's own session and window are selected
+// again in t.Cleanup, before the throwaway session is destroyed, so later
+// tests still find the app showing $REX_BLOCK's window. Live exception: this
+// moves the app's view for the length of the test.
+func TestPerformSessionSelect(t *testing.T) {
+	requireApp(t)
+	th := createThrowaway(t)
+	ids := make([]string, 0, len(live.apps))
+	for id := range live.apps {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	app := ids[0]
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
+		defer cancel()
+		_, err := live.c.Perform(ctx, client.PerformArgs{
+			ClientID: app, Action: "session.select",
+			Args: map[string]string{"session_id": live.session, "window_id": live.window},
+		})
+		if err != nil && !errors.Is(err, client.ErrRefused) {
+			t.Errorf("cleanup: re-select the user's session %s window %s: %v", live.session, live.window, err)
+		}
+	})
+	res, err := live.c.Perform(ctxT(t), client.PerformArgs{
+		ClientID: app, Action: "session.select",
+		Args: map[string]string{"session_id": th.id, "window_id": th.window},
+	})
+	if errors.Is(err, client.ErrRefused) {
+		t.Skipf("the app refused session.select (Remote Control is off): %v", err)
+	}
+	if err != nil {
+		t.Fatalf("client.perform session.select: %v", err)
+	}
+	if res.PerformedBy != app {
+		t.Errorf("performed_by = %q, want the app %q", res.PerformedBy, app)
+	}
+	// The spec does not say what the app attaches when it selects, so the
+	// resulting session_ids are logged for the rex-behaviors row, not asserted.
+	if apps, err := live.c.ListClients(ctxT(t), "", "app"); err == nil {
+		for _, a := range apps {
+			if a.ClientID == app {
+				t.Logf("app %s session_ids after select: %v", app, a.SessionIDs)
+			}
+		}
+	}
+}
+
+// TestAttachAllDeliversBlockEvents: a connection that called
+// session.attach_all with event_scope all, and never attached the session,
+// receives a block_event for a block another connection made and typed
+// into. The block reports an OSC 7501 status when it reads a line, and the
+// event is program_status_changed carrying record.state, record.app and a
+// reason, the nesting forge's watcher decodes. Runs on its own dialed
+// connection, never on live.c, so the scope change does not leak into the
+// shared hub.
+func TestAttachAllDeliversBlockEvents(t *testing.T) {
+	th := createThrowaway(t)
+	watcher, err := client.Dial(ctxT(t), client.Options{Name: labelPrefix + "-attachall", PingInterval: -1})
+	if err != nil {
+		t.Fatalf("dial the attach_all connection: %v", err)
+	}
+	t.Cleanup(func() { watcher.Close() })
+	sessions, err := watcher.AttachAll(ctxT(t), client.ScopeAll)
+	if err != nil {
+		t.Fatalf("session.attach_all: %v", err)
+	}
+	seen := false
+	for _, s := range sessions {
+		seen = seen || s.SessionID == th.id
+	}
+	if !seen {
+		t.Errorf("attach_all snapshot lacks session %s: %+v", th.id, sessions)
+	}
+
+	focus := false
+	w, err := live.c.NewWindow(ctxT(t), client.NewWindowArgs{
+		SessionID: th.id, Label: labelPrefix + "-status", Focus: &focus,
+		Layout: termLayout(labelPrefix+"-status", []string{
+			"/bin/sh", "-c", `read x; printf '\033]7501;state=working:app=rexuikit-livetest\033\\'; exec /bin/sleep 600`,
+		}, nil),
+	})
+	if err != nil || len(w.BlockIDs) == 0 {
+		t.Fatalf("session.new_window: %+v, %v", w, err)
+	}
+	block := w.BlockIDs[0]
+	if err := live.c.BlockMethod(ctxT(t), th.id, block, "com.superlogical.terminal.write",
+		map[string]string{"data": "go\n"}, nil); err != nil {
+		t.Fatalf("terminal.write: %v", err)
+	}
+
+	deadline := time.After(waitTimeout)
+	for {
+		select {
+		case ev, ok := <-watcher.Events():
+			if !ok {
+				t.Fatalf("attach_all connection closed before a block_event arrived: %v", watcher.Err())
+			}
+			be, isBlock, err := ev.Block()
+			if err != nil || !isBlock || be.BlockID != block {
+				continue
+			}
+			if be.SessionID != th.id {
+				t.Errorf("block_event session = %q, want %q", be.SessionID, th.id)
+			}
+			var p struct {
+				Reason string `json:"reason"`
+				Record struct {
+					State string `json:"state"`
+					App   string `json:"app"`
+				} `json:"record"`
+			}
+			if err := json.Unmarshal(be.Payload, &p); err != nil {
+				t.Fatalf("decode block_event payload %s: %v", be.Payload, err)
+			}
+			t.Logf("block_event name=%q creator=%q payload=%s", be.Name, be.CreatorName, be.Payload)
+			if be.Name != "program_status_changed" || p.Record.State != "working" || p.Record.App != "rexuikit-livetest" {
+				t.Errorf("block_event = name %q state %q app %q, want program_status_changed working rexuikit-livetest",
+					be.Name, p.Record.State, p.Record.App)
+			}
+			return
+		case <-deadline:
+			t.Fatalf("no block_event for block %s within %s of writing to it", block, waitTimeout)
+		}
+	}
+}
+
+// TestBlockProcessShellless: com.superlogical.terminal.process on a block
+// started with shell none and a command reports that command as child, not a
+// shell wrapper, so a pid taken from it is the program itself. Runs in the
+// throwaway session.
+func TestBlockProcessShellless(t *testing.T) {
+	th := createThrowaway(t)
+	w := sleepWindow(t, th, "rexuikit-livetest-process")
+	if len(w.BlockIDs) == 0 {
+		t.Fatalf("session.new_window returned no block: %+v", w)
+	}
+	var p client.ProcessResult
+	eventually(t, "the process method to name a child", func() bool {
+		var err error
+		p, err = live.c.BlockProcess(ctxT(t), th.id, w.BlockIDs[0])
+		return err == nil && p.Child != nil && p.Child.PID > 0
+	})
+	if got := filepath.Base(p.Child.Name); got != "sleep" {
+		t.Errorf("child name = %q (pid %d, path %q), want sleep, not a shell wrapper", p.Child.Name, p.Child.PID, p.Child.Path)
+	}
+}
+
+// TestConfigReload: server.config_reload over the local socket succeeds and
+// reports a generation. Diagnostics describe the user's own config, so they
+// are logged, not asserted: a config with a mistake is still a successful
+// reload. Live exception: this reloads the user's real config.
+func TestConfigReload(t *testing.T) {
+	r, err := live.c.ConfigReload(ctxT(t))
+	if err != nil {
+		t.Fatalf("server.config_reload: %v", err)
+	}
+	t.Logf("config generation %d, %d diagnostic(s)", r.Generation, len(r.Diagnostics))
+	for _, d := range r.Diagnostics {
+		t.Logf("diagnostic %s: %s", d.Severity, d.Message)
 	}
 }

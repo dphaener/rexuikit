@@ -37,6 +37,21 @@
 // attached but never claims the block: the app is not showing this window,
 // so bring the Rex app to the front on this tab and rerun.
 //
+// Exceptions to "never creates a window": the tests for forge's session and
+// window wrappers (CreateSession, FocusWindow, SetWindowLabel, BlockProcess,
+// AttachAll) run every mutating call inside ONE throwaway session labeled
+// rexuikit-livetest-session, which each test destroys in t.Cleanup and
+// TestMain sweeps at start and end. Before session.destroy the suite
+// attaches live.c to the session, because the server refuses the call
+// otherwise; the sweep does the same. TestAttachAllDeliversBlockEvents
+// dials its own connection, closed in cleanup, so attach_all's event scope
+// never reaches live.c or its hub. Two tests touch the user's own state by
+// design: TestPerformSessionSelect moves the Rex app to the throwaway
+// session and selects the user's original session and window again in
+// t.Cleanup, before the session is destroyed, so later tests still find the
+// app showing $REX_BLOCK's window; TestConfigReload reloads the user's real
+// config (a successful reload with diagnostics still passes).
+//
 // Programs inside blocks are testdata/helper, built once per run into a
 // mkdtemp directory under /tmp, which reports the terminal size it sees and
 // every byte it receives to a JSON file there.
