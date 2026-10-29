@@ -1,0 +1,12 @@
+                                              
+  Session name                                
+    fix-x                                     
+                                              
+  Base branch                                 
+  ▌                                           
+  ▌                                           
+  ▌                                           
+  ▌                                           
+  ✗ git branch failed: exit 128               
+                                              
+  enter submit · shift+tab back · esc cancel  

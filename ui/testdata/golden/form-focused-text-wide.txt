@@ -1,0 +1,16 @@
+                                                                        
+  Session name                                                          
+  ▌ fix-login-redirect                                                  
+                                                                        
+  Base branch                                                           
+    › main                                                              
+      rex-tui-components                                                
+      feat/other                                                        
+                                                                        
+  Start now                                                             
+     Yes    No                                                          
+                                                                        
+                                                                        
+                                                                        
+                                                                        
+  enter next · shift+tab back · esc cancel                              

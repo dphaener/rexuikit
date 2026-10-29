@@ -1,0 +1,10 @@
+                                            
+  Session info                              
+                                            
+  after width=40                            
+  line 01 detail                            
+  line 02 detail                            
+  line 03 detail                            
+  line 04 detail                            
+                                            
+  ↑↓ scroll · esc close · 1-5/6             

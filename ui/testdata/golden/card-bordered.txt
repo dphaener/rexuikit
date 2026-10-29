@@ -1,0 +1,9 @@
+╭─ New session ───────╮
+│                     │
+│  Name               │
+│   my-session        │
+│                     │
+│  Base main          │
+│                     │
+│  esc cancel         │
+╰─────────────────────╯

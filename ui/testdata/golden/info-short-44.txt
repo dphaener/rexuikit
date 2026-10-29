@@ -1,0 +1,10 @@
+                                            
+  Session info                              
+                                            
+  short width=40                            
+  line 01 detail                            
+  line 02 detail                            
+  line 03 detail                            
+                                            
+                                            
+  ↑↓ scroll · esc close                     

@@ -1,0 +1,9 @@
+                             
+  Create a session           
+                             
+  Name                       
+   my-session                
+                             
+  Base main                  
+                             
+  enter submit · esc cancel  

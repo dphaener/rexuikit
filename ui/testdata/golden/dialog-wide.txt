@@ -1,0 +1,9 @@
+                                                                
+  Clean session                                                 
+                                                                
+  Remove the worktree and branch of                             
+  fix-login-redirect?                                           
+                                                                
+  The Rex tab closes with it.                                   
+                                                                
+  d confirm · esc cancel                                        

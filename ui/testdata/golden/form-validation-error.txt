@@ -1,0 +1,14 @@
+                                              
+  Session name                                
+  ▌ F                                         
+  ✗ lowercase letters, digits and dashes on…  
+  Base branch                                 
+    › main                                    
+      rex-tui-components                      
+      feat/other                              
+                                              
+  Start now                                   
+     Yes    No                                
+                                              
+                                              
+  enter next · shift+tab back · esc cancel    
