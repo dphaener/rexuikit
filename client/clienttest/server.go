@@ -10,6 +10,12 @@
 // Control Connection") and nothing more: methods answer only what a test
 // registers with Handle, and everything else gets method_not_found.
 //
+// It accepts any number of simultaneous connections, as the real server
+// does (a short-lived call connection closing must not hide a long-lived
+// event connection): Emit reaches all of them, EmitAttachAll only those
+// that called session.attach_all, and a handler can see its caller with
+// CallerFrom.
+//
 // It deliberately does not import rexuikit/client, so tests inside package
 // client can use it without an import cycle.
 package clienttest
@@ -21,6 +27,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -84,16 +91,63 @@ type Server struct {
 	hellos   []Hello
 	requests []Request
 	errs     []error
-	conn     *serverConn
+	conns    []*serverConn // live connections, oldest first
 	connCh   chan struct{}
+	nextConn int
 }
 
 type serverConn struct {
+	id      int
 	ws      *websocket.Conn
 	ctx     context.Context
 	writeMu sync.Mutex
 	seqMu   sync.Mutex
 	seq     int64
+
+	// Guarded by Server.mu. A successful session.attach_all sets scope,
+	// a successful session.attach adds to attached.
+	scope    string
+	attached map[string]bool
+}
+
+// Caller describes the connection a request arrived on, as the fake has
+// seen it so far: what it attached to and the event scope it asked for.
+// A handler reads it with CallerFrom, to model the server's rule that
+// session.disown_block fails with conflict on a connection that never
+// called session.attach.
+type Caller struct {
+	ID         int      // 1 for the first connection the server accepted
+	EventScope string   // "" until the connection calls session.attach_all
+	Attached   []string // sessions this connection called session.attach for
+}
+
+// Has reports whether the connection called session.attach for sessionID.
+func (c Caller) Has(sessionID string) bool {
+	for _, id := range c.Attached {
+		if id == sessionID {
+			return true
+		}
+	}
+	return false
+}
+
+type callerKey struct{}
+
+// CallerFrom returns the connection a handler's request arrived on. The
+// zero Caller means ctx did not come from a handler.
+func CallerFrom(ctx context.Context) Caller {
+	c, _ := ctx.Value(callerKey{}).(Caller)
+	return c
+}
+
+// snapshot copies the connection's attach state; the caller holds s.mu.
+func (c *serverConn) snapshot() Caller {
+	ids := make([]string, 0, len(c.attached))
+	for id := range c.attached {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return Caller{ID: c.id, EventScope: c.scope, Attached: ids}
 }
 
 // New starts a fake on TCP loopback and closes it when the test ends.
@@ -127,9 +181,9 @@ func (s *Server) HTTPClient() *http.Client { return s.http.Client() }
 
 func (s *Server) Close() {
 	s.mu.Lock()
-	c := s.conn
+	conns := append([]*serverConn(nil), s.conns...)
 	s.mu.Unlock()
-	if c != nil {
+	for _, c := range conns {
 		_ = c.ws.CloseNow()
 	}
 	s.http.Close()
@@ -188,10 +242,10 @@ func (s *Server) recordErr(err error) {
 	s.mu.Unlock()
 }
 
-// WaitConnected blocks until a client has been welcomed, or ctx ends.
+// WaitConnected blocks until at least one client is connected, or ctx ends.
 func (s *Server) WaitConnected(ctx context.Context) error {
 	s.mu.Lock()
-	ch, connected := s.connCh, s.conn != nil
+	ch, connected := s.connCh, len(s.conns) > 0
 	s.mu.Unlock()
 	if connected {
 		return nil
@@ -204,23 +258,76 @@ func (s *Server) WaitConnected(ctx context.Context) error {
 	}
 }
 
+// current is the newest live connection, the one Send, Drop and CloseConn
+// act on: after a client reconnects, that is the new one.
 func (s *Server) current() (*serverConn, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.conn == nil {
+	if len(s.conns) == 0 {
 		return nil, errors.New("clienttest: no connected client")
 	}
-	return s.conn, nil
+	return s.conns[len(s.conns)-1], nil
 }
 
-// Emit sends an event to the connected client with the next seq and returns
-// that seq. event is the inner event, {type, payload}; build one with
-// EventOf, SessionEventOf or BlockEventOf.
-func (s *Server) Emit(event any) (int64, error) {
-	c, err := s.current()
-	if err != nil {
-		return 0, err
+// Connections is the number of live connections.
+func (s *Server) Connections() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.conns)
+}
+
+// Callers returns the attach state of every live connection, oldest first.
+func (s *Server) Callers() []Caller {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]Caller, 0, len(s.conns))
+	for _, c := range s.conns {
+		out = append(out, c.snapshot())
 	}
+	return out
+}
+
+// Emit sends an event to every live connection, each with its own next seq
+// (seq is per connection), and returns the seq of the newest connection's
+// copy. event is the inner event, {type, payload}; build one with EventOf,
+// SessionEventOf or BlockEventOf. It fails when no client is connected.
+func (s *Server) Emit(event any) (int64, error) {
+	return s.emit(event, func(*serverConn) bool { return true })
+}
+
+// EmitAttachAll is Emit limited to connections that called
+// session.attach_all, the only ones the real server sends session-wide
+// events to. It does not model event_scope filtering of individual event
+// types: a test that cares emits only what its scope would receive.
+func (s *Server) EmitAttachAll(event any) (int64, error) {
+	return s.emit(event, func(c *serverConn) bool { return c.scope != "" })
+}
+
+func (s *Server) emit(event any, want func(*serverConn) bool) (int64, error) {
+	s.mu.Lock()
+	var targets []*serverConn
+	for _, c := range s.conns {
+		if want(c) {
+			targets = append(targets, c)
+		}
+	}
+	s.mu.Unlock()
+	if len(targets) == 0 {
+		return 0, errors.New("clienttest: no connected client")
+	}
+	var seq int64
+	var first error
+	for _, c := range targets {
+		n, err := c.emit(event)
+		seq = n
+		if err != nil && first == nil {
+			first = err
+		}
+	}
+	return seq, first
+}
+
+func (c *serverConn) emit(event any) (int64, error) {
 	c.seqMu.Lock()
 	defer c.seqMu.Unlock()
 	c.seq++
@@ -278,6 +385,27 @@ func BlockEventOf(sessionID, blockID, creator, name string, payload any) any {
 	})
 }
 
+// noteAttach records what a successful attach-family call did to the
+// connection. The fake trusts the registered handler for success and only
+// tracks the state the real server would keep.
+func (s *Server) noteAttach(c *serverConn, req Request) {
+	var p struct {
+		SessionID  string `json:"session_id"`
+		EventScope string `json:"event_scope"`
+	}
+	_ = json.Unmarshal(req.Payload, &p)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch req.Method {
+	case "session.attach":
+		c.attached[p.SessionID] = true
+	case "session.detach":
+		delete(c.attached, p.SessionID)
+	case "session.attach_all":
+		c.scope = p.EventScope
+	}
+}
+
 func (c *serverConn) send(msg any) error {
 	b, err := json.Marshal(msg)
 	if err != nil {
@@ -323,8 +451,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	h.Raw = data
 
-	c := &serverConn{ws: ws, ctx: ctx}
+	c := &serverConn{ws: ws, ctx: ctx, attached: map[string]bool{}}
 	s.mu.Lock()
+	s.nextConn++
+	c.id = s.nextConn
 	s.hellos = append(s.hellos, h)
 	welcome := s.welcome
 	s.mu.Unlock()
@@ -343,14 +473,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// soon as it reads the welcome, so a test that emits right after Dial
 		// would otherwise race this goroutine and see "no connected client".
 		s.mu.Lock()
-		s.conn = c
+		s.conns = append(s.conns, c)
 		close(s.connCh)
 		s.connCh = make(chan struct{})
 		s.mu.Unlock()
 		defer func() {
 			s.mu.Lock()
-			if s.conn == c {
-				s.conn = nil
+			for i, o := range s.conns {
+				if o == c {
+					s.conns = append(s.conns[:i:i], s.conns[i+1:]...)
+					break
+				}
 			}
 			s.mu.Unlock()
 		}()
@@ -398,10 +531,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			resp := map[string]any{"type": "response", "id": req.ID, "seq": seq}
 			if h == nil {
 				resp["error"] = &Error{Code: "method_not_found", Status: 404, Message: "unknown method " + req.Method}
-			} else if result, e := h(ctx, req); e != nil {
-				resp["error"] = e
 			} else {
-				resp["payload"] = result
+				s.mu.Lock()
+				caller := c.snapshot()
+				s.mu.Unlock()
+				result, e := h(context.WithValue(ctx, callerKey{}, caller), req)
+				if e != nil {
+					resp["error"] = e
+				} else {
+					s.noteAttach(c, req)
+					resp["payload"] = result
+				}
 			}
 			if err := c.send(resp); err != nil && ctx.Err() == nil {
 				s.recordErr(fmt.Errorf("send response %s: %w", req.ID, err))

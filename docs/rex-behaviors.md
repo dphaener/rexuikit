@@ -257,6 +257,20 @@ Caveats (inferred):
 | `terminal.size` returns `columns`, `rows`, `owner`, `desired`. After `disown_block`, `desired` stays empty unless the app is rendering the window. | `measure-chrome.lua` failure path prints them; W3.T3 run. | observed | `TestLayerChromeDelta` |
 | `shell="none"` without `command` tries to exec the program named "none". | Planning probe. | inferred | none (a failure mode, not relied on) |
 
+## Calls forge's Rex seam relies on
+
+The spec documents these methods but not the behaviour forge depends on.
+Every row is `unprobed` until the `rexlive` contract tests (W2.T5) run
+unsandboxed inside Rex with the app showing the window, then moves to
+`observed`.
+
+| Behavior | Evidence | Confidence | Test |
+|---|---|---|---|
+| `client.perform` of `session.select` on the app client switches the app to that session and window. A `refused` answer means Remote Control is off. | `llms-r7.md` `client.perform` documents `refused` and `not_supported` only generically; the CLI's `rex app select` is what forge uses today. | unprobed | `TestPerformSessionSelect` (rexlive, W2.T5) |
+| `session.attach_all` with `event_scope: all` delivers `block_event` carrying the OSC 7501 program-status record, in the same nesting `rex events --json` printed (`program_status_changed` with `{id, record:{state,kind,app,msg}, reason}`). | The snapshot documents the `session_event` to `block_event` envelope only; the inner shape comes from `internal/rex/testdata/events.jsonl`. | unprobed | `TestAttachAllDeliversBlockEvents` (rexlive, W2.T5) |
+| `com.superlogical.terminal.process` `.child.pid` is the program itself under `shell: "none"` with `command`, not a shell wrapper. | `llms-r7.md` says `child` is "usually a shell"; the CLI behaved this way (see CLAUDE.md "Launch uses `--shell=none`"). | unprobed | `TestBlockProcessShellless` (rexlive, W2.T5) |
+| Block ownership releases on disconnect for the initial windows of `session.create` and the blocks of `session.new_window`, so the app sizes them once forge's short-lived connection closes. `session.disown_block` is belt and braces and needs the connection to have called `session.attach` (`attach_all` is not enough). | Spec: the caller owns the blocks; "Sizing and ownership" above shows one-shot creators resize correctly because they disconnect at once. | unprobed | `TestSessionCreateOwnershipReleases` (rexlive, W2.T5) |
+
 ## Layer lifecycle and focus
 
 | Behavior | Evidence | Confidence | Test |

@@ -47,6 +47,31 @@ type Theme struct {
 	Danger color.Color
 	// Border is the rule colour for the opt-in bordered card and dividers.
 	Border color.Color
+
+	// Panel is the raised pane background of a status dashboard: lighter than
+	// Surface in Dark, a step darker in Light. Text, Muted and the status
+	// colours clear WCAG AA on it as well as on Surface.
+	Panel color.Color
+	// Strip is the header strip background; StripText is its foreground.
+	Strip     color.Color
+	StripText color.Color
+	// Selection is the background of the selected row; SelectionText is the
+	// foreground drawn on it.
+	Selection     color.Color
+	SelectionText color.Color
+	// OnAccent is the foreground for text drawn on an Accent background, such
+	// as a focused button.
+	OnAccent color.Color
+	// Faint is a decorative foreground for rules and separators. It is not
+	// held to WCAG AA, so never use it for text a reader must read.
+	Faint color.Color
+	// Need marks a session that needs the user (orange), Work one in
+	// progress (blue), Done one that finished (green), and Meta secondary
+	// metadata (violet). Danger already covers bad.
+	Need color.Color
+	Work color.Color
+	Done color.Color
+	Meta color.Color
 }
 
 // Dark is the default theme and the first-frame default (see the package
@@ -62,6 +87,18 @@ func Dark() Theme {
 		Accent:  lipgloss.Color("#89b4fa"),
 		Danger:  lipgloss.Color("#f38ba8"),
 		Border:  lipgloss.Color("#45475a"),
+
+		Panel:         lipgloss.Color("#2d2e40"),
+		Strip:         lipgloss.Color("#181825"),
+		StripText:     lipgloss.Color("#bac2de"),
+		Selection:     lipgloss.Color("#45475a"),
+		SelectionText: lipgloss.Color("#f5e0dc"),
+		OnAccent:      lipgloss.Color("#1e1e2e"),
+		Faint:         lipgloss.Color("#585b70"),
+		Need:          lipgloss.Color("#fab387"),
+		Work:          lipgloss.Color("#89b4fa"),
+		Done:          lipgloss.Color("#a6e3a1"),
+		Meta:          lipgloss.Color("#cba6f7"),
 	}
 }
 
@@ -76,6 +113,18 @@ func Light() Theme {
 		Accent:  lipgloss.Color("#1650d0"),
 		Danger:  lipgloss.Color("#c40d33"),
 		Border:  lipgloss.Color("#acb0be"),
+
+		Panel:         lipgloss.Color("#e6e9ef"),
+		Strip:         lipgloss.Color("#ccd0da"),
+		StripText:     lipgloss.Color("#3c3f55"),
+		Selection:     lipgloss.Color("#bcc0cc"),
+		SelectionText: lipgloss.Color("#232634"),
+		OnAccent:      lipgloss.Color("#ffffff"),
+		Faint:         lipgloss.Color("#9ca0b0"),
+		Need:          lipgloss.Color("#a84300"),
+		Work:          lipgloss.Color("#1650d0"),
+		Done:          lipgloss.Color("#15692a"),
+		Meta:          lipgloss.Color("#6f2fc9"),
 	}
 }
 

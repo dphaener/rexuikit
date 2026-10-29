@@ -92,3 +92,63 @@ func TestFromBackground(t *testing.T) {
 		})
 	}
 }
+
+// TestStatusTokensPopulated: every token added for the status dashboard is
+// set in both themes. A nil colour would panic at draw time, not at build.
+func TestStatusTokensPopulated(t *testing.T) {
+	for name, th := range map[string]Theme{"dark": Dark(), "light": Light()} {
+		for tok, c := range map[string]color.Color{
+			"panel": th.Panel, "strip": th.Strip, "stripText": th.StripText,
+			"selection": th.Selection, "selectionText": th.SelectionText,
+			"onAccent": th.OnAccent, "faint": th.Faint,
+			"need": th.Need, "work": th.Work, "done": th.Done, "meta": th.Meta,
+		} {
+			if c == nil {
+				t.Errorf("%s: %s is nil", name, tok)
+			}
+		}
+	}
+}
+
+// TestStatusTokensReadable is the AA acceptance for the new text tokens: the
+// status colours and the existing text tokens on Surface and Panel, plus the
+// three paired foregrounds on their own backgrounds. Faint is decorative and
+// deliberately absent.
+func TestStatusTokensReadable(t *testing.T) {
+	const aa = 4.5
+	for name, th := range map[string]Theme{"dark": Dark(), "light": Light()} {
+		for _, ground := range []struct {
+			name string
+			bg   color.Color
+		}{{"surface", th.Surface}, {"panel", th.Panel}} {
+			for _, tok := range []struct {
+				name string
+				fg   color.Color
+			}{
+				{"text", th.Text}, {"muted", th.Muted},
+				{"need", th.Need}, {"work", th.Work}, {"done", th.Done},
+				{"meta", th.Meta}, {"danger", th.Danger}, {"accent", th.Accent},
+			} {
+				t.Run(name+"/"+tok.name+"/"+ground.name, func(t *testing.T) {
+					if got := Contrast(tok.fg, ground.bg); got < aa {
+						t.Errorf("contrast = %.2f, want >= %.1f", got, aa)
+					}
+				})
+			}
+		}
+		for _, pair := range []struct {
+			name   string
+			fg, bg color.Color
+		}{
+			{"stripText on strip", th.StripText, th.Strip},
+			{"selectionText on selection", th.SelectionText, th.Selection},
+			{"onAccent on accent", th.OnAccent, th.Accent},
+		} {
+			t.Run(name+"/"+pair.name, func(t *testing.T) {
+				if got := Contrast(pair.fg, pair.bg); got < aa {
+					t.Errorf("contrast = %.2f, want >= %.1f", got, aa)
+				}
+			})
+		}
+	}
+}
