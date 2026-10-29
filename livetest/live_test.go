@@ -548,8 +548,8 @@ var chromeRow = regexp.MustCompile("(?m)^\\|\\s*`?(FramePxCols|FramePxRows|Borde
 // source both surface and the generated Lua copy, so the test must catch
 // either drifting from Rex.
 //
-//	| `FramePxCols`     | 21    |
-//	| `BorderPxRows`    | 46    |
+//	| `FramePxCols`     | 52    |
+//	| `BorderPxRows`    | 92    |
 //	| `EdgeRounding`    | round |
 func loadChrome(t *testing.T) (cols, rows chromeRule) {
 	t.Helper()

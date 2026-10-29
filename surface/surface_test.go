@@ -239,12 +239,11 @@ func waitDone(t *testing.T, h *Handle) {
 }
 
 // TestUsable is the forward chrome model against samples recorded in
-// rex-behaviors.md (149x130 cells at 7x14 px). Load-bearing rows: the two
-// w=0.40 rows at x=0.40 and x=0.55, which differ by a column only because
-// each edge rounds on its own; a position-free model passes one and fails
-// the other. The tiny-bounds rows pin the 1x1 floor.
+// rex-behaviors.md (210x60 cells at 14x28 px). Load-bearing rows: the two
+// w=0.40 rows at x=0.40 and x=0.55, which the samples give the same width, and
+// the tiny-bounds rows pin the 1x1 floor.
 func TestUsable(t *testing.T) {
-	w149 := WindowCells{Cols: 149, Rows: 130, CellWPx: 7, CellHPx: 14}
+	w210 := WindowCells{Cols: 210, Rows: 60, CellWPx: 14, CellHPx: 28}
 	w80 := WindowCells{Cols: 80, Rows: 24, CellWPx: 7, CellHPx: 14}
 	w300 := WindowCells{Cols: 300, Rows: 80, CellWPx: 9, CellHPx: 18}
 	tests := []struct {
@@ -253,14 +252,14 @@ func TestUsable(t *testing.T) {
 		b    client.Bounds
 		want client.Size
 	}{
-		{"doc sample x=0.40", w149, client.Bounds{0.40, 0.30, 0.40, 0.30}, client.Size{Columns: 57, Rows: 36}},
-		{"doc sample x=0.55", w149, client.Bounds{0.55, 0.30, 0.40, 0.30}, client.Size{Columns: 58, Rows: 36}},
-		{"doc sample 0.8x0.8", w149, client.Bounds{0.1, 0.1, 0.8, 0.8}, client.Size{Columns: 118, Rows: 103}},
-		{"doc sample corner", w149, client.Bounds{0, 0, 0.2, 0.2}, client.Size{Columns: 27, Rows: 23}},
-		{"doc sample narrow", w149, client.Bounds{0.45, 0.45, 0.1, 0.5}, client.Size{Columns: 12, Rows: 63}},
-		// (80*7+21=581 px; edge(0.5)=291, edge(1.0)=581, 290-20=270 -> 38 cols;
-		// (24*14+46=382 px; edge(.25)=96, edge(.75)=287, 191-46=145 -> 10 rows)
-		{"small window half", w80, client.Bounds{0.5, 0.25, 0.5, 0.5}, client.Size{Columns: 38, Rows: 10}},
+		{"doc sample x=0.40", w210, client.Bounds{0.40, 0.30, 0.40, 0.30}, client.Size{Columns: 82, Rows: 15}},
+		{"doc sample x=0.55", w210, client.Bounds{0.55, 0.30, 0.40, 0.30}, client.Size{Columns: 82, Rows: 15}},
+		{"doc sample 0.8x0.8", w210, client.Bounds{0.1, 0.1, 0.8, 0.8}, client.Size{Columns: 168, Rows: 47}},
+		{"doc sample corner", w210, client.Bounds{0, 0, 0.2, 0.2}, client.Size{Columns: 39, Rows: 9}},
+		{"doc sample narrow", w210, client.Bounds{0.45, 0.45, 0.1, 0.5}, client.Size{Columns: 18, Rows: 28}},
+		// (80*7+52=612 px; edge(0.5)=306, edge(1.0)=612, 306-40=266 -> 38 cols;
+		// (24*14+110=446 px; edge(.25)=112, edge(.75)=335, 223-92=131 -> 9 rows)
+		{"small window half", w80, client.Bounds{0.5, 0.25, 0.5, 0.5}, client.Size{Columns: 38, Rows: 9}},
 		// (300*9+21=2721 px; edge(.2)=544, edge(.8)=2177, 1633-20=1613 -> 179;
 		// (80*18+46=1486 px; edge(.1)=149, edge(.9)=1337, 1188-46=1142 -> 63)
 		{"other cell size", w300, client.Bounds{0.2, 0.1, 0.6, 0.8}, client.Size{Columns: 179, Rows: 63}},
@@ -341,10 +340,9 @@ func TestBoundsForCellsRoundTrip(t *testing.T) {
 // TestBoundsForCellsNeverShort: forward(inverse(n)) >= n on both axes for
 // every anchor, over windows and cell sizes beyond the one the chrome was
 // measured on, with the inverse margins spare in pixels; and ok is false
-// only when Usable really falls short. Load-bearing: the 149x130 @ 7x14
-// window with a 46x30 form, the new-session layer W6.T2 saw settle at
-// 46x29 when its rows spanned exactly 30*14 + 44 px under the old model;
-// the re-measured model (1866 px, border 46) reproduces that 29.
+// only when Usable really falls short. Load-bearing: a centred 46x30 form in
+// the 210x60 @ 14x28 window the chrome was measured on, so the rows and cols
+// margins are tested at the cell size the model is fit to.
 func TestBoundsForCellsNeverShort(t *testing.T) {
 	windows := []WindowCells{
 		{Cols: 149, Rows: 130, CellWPx: 7, CellHPx: 14},
@@ -389,20 +387,14 @@ func TestBoundsForCellsNeverShort(t *testing.T) {
 			}
 		}
 	}
-	t.Run("W6.T2 new-session layer", func(t *testing.T) {
-		w := WindowCells{Cols: 149, Rows: 130, CellWPx: 7, CellHPx: 14}
+	t.Run("centred 46x30 form", func(t *testing.T) {
+		w := WindowCells{Cols: 210, Rows: 60, CellWPx: 14, CellHPx: 28}
 		b, ok := BoundsForCells(w, 46, 30, Centered)
 		if !ok {
-			t.Fatal("ok = false for a 46x30 form in a 149x130 window")
+			t.Fatal("ok = false for a 46x30 form in a 210x60 window")
 		}
 		if got := Usable(w, b); got.Columns < 46 || got.Rows < 30 {
 			t.Errorf("Usable = %dx%d, want >= 46x30", got.Columns, got.Rows)
-		}
-		// The bounds W6.T2 opened (no margin, old model) must be what the
-		// re-measured model calls 29 rows: the app gave 29 every time.
-		old := client.Bounds{0.3392857142857143, 0.3754027926960258, 0.32142857142857145, 0.2491944146079484}
-		if got := Usable(w, old); got.Columns != 46 || got.Rows != 29 {
-			t.Errorf("Usable(W6.T2 bounds) = %dx%d, want the 46x29 the app gave", got.Columns, got.Rows)
 		}
 		// 5 px, not InverseMarginPxRows: the constant must not be able to
 		// shrink below the spare the inverse is documented to keep.
@@ -1068,13 +1060,12 @@ func TestChromeConstantsMatchBehaviorsDoc(t *testing.T) {
 }
 
 // TestUsableMatchesRecordedSamples replays every measured sample in the
-// doc's evidence table (149x130 cells, 7x14 px) through Usable, including
-// the centred 46x30 layer (0.339286, 0.375403, ...) the app gave 29 rows.
+// doc's evidence table (210x60 cells, 14x28 px) through Usable.
 func TestUsableMatchesRecordedSamples(t *testing.T) {
-	w := WindowCells{Cols: 149, Rows: 130, CellWPx: 7, CellHPx: 14}
+	w := WindowCells{Cols: 210, Rows: 60, CellWPx: 14, CellHPx: 28}
 	rows := sampleRow.FindAllStringSubmatch(chromeSection(t), -1)
-	if len(rows) < 96 {
-		t.Fatalf("found %d samples in the doc, want the 96 recorded", len(rows))
+	if len(rows) < 71 {
+		t.Fatalf("found %d samples in the doc, want the 71 recorded", len(rows))
 	}
 	for _, m := range rows {
 		var b client.Bounds

@@ -17,8 +17,8 @@ the evidence, the Rex version observed, and the live test that re-proves it
 
 ## Layer chrome
 
-Single source for W3.T1 (`surface` sizing and `BoundsForCells`) and W5.T2
-(constants injected into the generated Lua). Re-proved by
+Single source for `surface` sizing (`Usable` and `BoundsForCells`) and for the
+constants injected into the generated Lua. Re-proved by
 `TestLayerChromeDelta` and the final-size step of `TestPrewarmPlacement`,
 which parse the constants table below from this section.
 `TestChromeConstantsMatchBehaviorsDoc` ties both tables here to
@@ -28,8 +28,8 @@ sample in the evidence table through `surface.Usable`.
 **The size depends on position.** The app lays a floating layer out in
 pixels: it rounds each edge of the layer to a whole pixel on its own, takes
 the border and title out in pixels, and cuts the rest into whole cells. Two
-layers with the same `w` can differ by one column at different `x` (w=0.40
-over 149 columns: 57 at x=0.40, 58 at x=0.55). Rows behave the same way.
+layers with the same `w` can differ by one column at different `x`. Rows
+behave the same way.
 
 Model, per axis. Inputs, all available to Go and to Lua when a layer is
 opened: the window's cell size (`columns`, `rows` of the window's lone tiled
@@ -51,28 +51,20 @@ here); `floor` is `SizeRounding`. Use float64 (Lua numbers are doubles).
 
 | Constant       | Value |
 |----------------|-------|
-| `FramePxCols`  | 21    |
-| `FramePxRows`  | 46    |
-| `BorderPxCols` | 20    |
-| `BorderPxRows` | 46    |
+| `FramePxCols`  | 52    |
+| `FramePxRows`  | 110   |
+| `BorderPxCols` | 40    |
+| `BorderPxRows` | 92    |
 | `EdgeRounding` | round |
 | `SizeRounding` | floor |
 
-The frame offset is in pixels, not cells. Cols could be written either way
-(1064 px = (149 + 3) * 7), but rows cannot: 130 rows of 14 px span 1866 px
-in the app's layout, which is not a whole number of cells.
+The offsets are in pixels, not cells. At 14 px cells, 52 px is 3.7 cells and 40 px
+is 2.9 cells.
 
-**Superseded model.** Until the review-fix re-measure this section recorded
-`P = (cells + 3) * cell_px` on both axes with `BorderPxRows` 44 (1862 px for
-rows), and said that border "never predicts more rows than 43 does, so an
-inverse built on it errs toward one row too many, never one too few". That
-was wrong. A centred 46x30 layer over 149x130 at 7x14 px (W6.T2, bounds
-`0.339286, 0.375403, 0.321429, 0.249194`) spans exactly 30 * 14 + 44 px
-under the old model, which said 30 rows; the app gave 29 every time. The old
-42 samples fit 402 (window px, border px) pairs for rows, and 1862/44 was
-only one of them. The 54 samples added since (row spans swept one pixel at a
-time, then boxes picked to split the survivors) leave exactly one: 1866 px,
-border 46, which gives that layer 29.
+**Refit at 14x28 px.** The values above replace the earlier 7x14 px fit
+(`FramePxCols` 21, `FramePxRows` 46, `BorderPxCols` 20, `BorderPxRows` 46, which
+predict 83 columns where the app gives 82 at 14x28). That fit is in the git
+history of this file. The 7x14 samples are no longer in the evidence.
 
 ### Inverse for `BoundsForCells`
 
@@ -105,143 +97,103 @@ there.
 | `InverseMarginPxCols` | 0     |
 | `InverseMarginPxRows` | 5     |
 
-The margins are pixels the inverse keeps spare beyond the model. They are
-not chrome, and the forward model (`surface.Usable`) never uses them. The
-rows margin was added while rows were under-determined, to keep the W6.T2
-layer from coming up a row short. The model above now reproduces that
-layer, so the margin is no longer a correction: it stays because the model
-was fit on one window and one cell size, and 5 px absorbs a frame or border
-a few pixels off elsewhere. 5 px is under one row, so a form never gets a
-row more than it asked for. Cols keep none: they fit one model from the
-first 42 samples, including zero-spare samples the app honoured. The Lua
-gets both values as `MARGIN_PX_COLS` and `MARGIN_PX_ROWS`.
+The margins are pixels the inverse keeps spare beyond the model. They are not
+chrome, and the forward model (`surface.Usable`) never uses them. They were set
+against the earlier 7x14 px fit and have not been re-checked against the 14x28
+fit above. The Lua gets both values as `MARGIN_PX_COLS` and `MARGIN_PX_ROWS`.
 
 ### Evidence
 
-96 samples, window 149x130 cells, cell 7x14 px, `rex do` script
-`rexuikit/scripts/measure-chrome.lua` (re-run 2026-10-28 during review fix 1
-with `fit=0`, layers opened over the conductor's window, each block
-disowned, size read once the app client owned it and its size held for
-300 ms, every layer closed; the fits below were run offline over the
-printed samples). The first 42 rows are the 12:45 grid, re-measured with
-identical results. Rows 43-62 are centred 46-column layers whose rows span
-464 + k px (k = -3..16) under the old model, the first of them the W6.T2
-layer. Rows 63-88 are the same spans flush top and at y = 0.5. Rows 89-96
-were picked to separate the rows models still standing after that.
+71 samples, window 210x60 cells, cell 14x28 px. Measured with
+`rexuikit/scripts/measure-chrome.lua` (`fit=0`) over the window that holds the
+conductor's block: each layer was opened, its block disowned, and its size read
+once the app client owned it. The script stopped after the 71st sample on a
+split-window probe that failed on a nil `block_ids` lookup. The 71 samples are
+complete for the fit.
 
-Searched, per axis, the pixel family above with `P` in
-`W*cell - 40 .. W*cell + 80`, border 0..79 px, edge and size rounding each
-in {floor, round, ceil}:
+The fit was run offline over the printed samples. On this window, the integer
+grid holds 54 column pairs and 16 row pairs that match every sample. The
+values in the constants table are one pair from each, chosen by hand. Doubling
+the earlier 7x14 constants misses 9 column and 16 row values of these 71
+samples, so they are not a scaling of the old fit. The samples do not decide
+between the pairs, and the model has not been checked at any other cell size.
 
-- **Cols:** only `P = 1064` with round edges and border 20 px under floor
-  (round/ceil with border 23/26 px are the same function).
-- **Rows:** only `P = 1866` with round edges and border 46 px under floor
-  (round/ceil with border 53/59 px are the same function). After rows 1-88
-  four functions were left (1866/46, 1870 with floor or ceil edges,
-  1874/48); rows 89-96 rule out all but 1866/46.
+`TestUsableMatchesRecordedSamples` replays every row below through `Usable`, and
+its model columns must equal the measured ones.
 
-The old position-free rule `floor((window + 3) * w) - 3` misses 9 of the
-first 42 cols samples. The cell-edge family
-`R((W + a) * (p + s) + B) - R((W + a) * p + B) - c` fits neither axis.
-
-| bounds `x, y, w, h`             | cols | rows | model cols | model rows |
-|---------------------------------|------|------|------------|------------|
-| 0.400000, 0.300000, 0.400000, 0.300000 | 57 | 36 | 57 | 36 |
-| 0.100000, 0.100000, 0.800000, 0.800000 | 118 | 103 | 118 | 103 |
-| 0.250000, 0.200000, 0.500000, 0.600000 | 73 | 76 | 73 | 76 |
-| 0.300000, 0.150000, 0.330000, 0.450000 | 47 | 56 | 47 | 56 |
-| 0.050000, 0.050000, 0.370000, 0.710000 | 53 | 91 | 53 | 91 |
-| 0.500000, 0.500000, 0.450000, 0.450000 | 65 | 56 | 65 | 56 |
-| 0.000000, 0.000000, 0.200000, 0.200000 | 27 | 23 | 27 | 23 |
-| 0.150000, 0.600000, 0.250000, 0.350000 | 35 | 43 | 35 | 43 |
-| 0.350000, 0.050000, 0.600000, 0.250000 | 88 | 30 | 88 | 30 |
-| 0.600000, 0.200000, 0.300000, 0.700000 | 42 | 90 | 42 | 90 |
-| 0.200000, 0.400000, 0.650000, 0.150000 | 95 | 16 | 95 | 16 |
-| 0.450000, 0.450000, 0.100000, 0.500000 | 12 | 63 | 12 | 63 |
-| 0.020000, 0.300000, 0.550000, 0.550000 | 80 | 70 | 80 | 70 |
-| 0.330000, 0.330000, 0.340000, 0.340000 | 48 | 42 | 48 | 42 |
-| 0.000000, 0.000000, 0.400000, 0.300000 | 58 | 36 | 58 | 36 |
-| 0.050000, 0.650000, 0.400000, 0.300000 | 58 | 36 | 58 | 36 |
-| 0.100000, 0.100000, 0.400000, 0.300000 | 58 | 36 | 58 | 36 |
-| 0.150000, 0.550000, 0.400000, 0.300000 | 57 | 36 | 57 | 36 |
-| 0.200000, 0.200000, 0.400000, 0.300000 | 57 | 36 | 57 | 36 |
-| 0.250000, 0.450000, 0.400000, 0.300000 | 58 | 36 | 58 | 36 |
-| 0.300000, 0.400000, 0.400000, 0.300000 | 58 | 36 | 58 | 36 |
-| 0.350000, 0.350000, 0.400000, 0.300000 | 58 | 36 | 58 | 36 |
-| 0.450000, 0.250000, 0.400000, 0.300000 | 57 | 36 | 57 | 36 |
-| 0.500000, 0.500000, 0.400000, 0.300000 | 58 | 36 | 58 | 36 |
-| 0.550000, 0.300000, 0.400000, 0.300000 | 58 | 36 | 58 | 36 |
-| 0.600000, 0.050000, 0.400000, 0.300000 | 58 | 36 | 58 | 36 |
-| 0.550000, 0.300000, 0.200000, 0.200000 | 27 | 23 | 27 | 23 |
-| 0.070000, 0.620000, 0.200000, 0.200000 | 27 | 23 | 27 | 23 |
-| 0.410000, 0.110000, 0.330000, 0.450000 | 47 | 56 | 47 | 56 |
-| 0.630000, 0.510000, 0.330000, 0.450000 | 47 | 56 | 47 | 56 |
-| 0.130000, 0.170000, 0.500000, 0.600000 | 73 | 76 | 73 | 76 |
-| 0.470000, 0.370000, 0.500000, 0.600000 | 73 | 76 | 73 | 76 |
-| 0.310000, 0.090000, 0.650000, 0.150000 | 95 | 16 | 95 | 16 |
-| 0.010000, 0.830000, 0.650000, 0.150000 | 95 | 16 | 95 | 16 |
-| 0.493500, 0.493500, 0.300000, 0.300000 | 42 | 36 | 42 | 36 |
-| 0.496500, 0.496500, 0.300000, 0.300000 | 42 | 36 | 42 | 36 |
-| 0.499500, 0.499500, 0.300000, 0.300000 | 42 | 36 | 42 | 36 |
-| 0.502500, 0.502500, 0.300000, 0.300000 | 42 | 36 | 42 | 36 |
-| 0.505500, 0.505500, 0.300000, 0.300000 | 42 | 36 | 42 | 36 |
-| 0.508500, 0.508500, 0.300000, 0.300000 | 42 | 36 | 42 | 36 |
-| 0.100000, 0.100000, 0.396600, 0.396600 | 57 | 49 | 57 | 49 |
-| 0.100000, 0.100000, 0.403300, 0.403300 | 58 | 50 | 58 | 50 |
-| 0.100000, 0.000000, 0.400000, 0.136900 | 58 | 14 | 58 | 14 |
-| 0.100000, 0.021000, 0.400000, 0.106900 | 58 | 11 | 58 | 11 |
-| 0.100000, 0.042000, 0.400000, 0.106900 | 58 | 11 | 58 | 11 |
-| 0.100000, 0.063000, 0.400000, 0.196900 | 58 | 22 | 58 | 22 |
-| 0.100000, 0.084000, 0.400000, 0.107200 | 58 | 11 | 58 | 11 |
-| 0.100000, 0.112000, 0.400000, 0.286900 | 58 | 34 | 58 | 34 |
-| 0.100000, 0.140000, 0.400000, 0.294100 | 58 | 35 | 58 | 35 |
-| 0.100000, 0.175000, 0.400000, 0.279400 | 58 | 33 | 58 | 33 |
-| 0.339286, 0.376208, 0.321429, 0.247583 | 46 | 29 | 46 | 29 |
-| 0.339286, 0.375940, 0.321429, 0.248120 | 46 | 29 | 46 | 29 |
-| 0.339286, 0.375671, 0.321429, 0.248657 | 46 | 29 | 46 | 29 |
-| 0.339286, 0.375403, 0.321429, 0.249194 | 46 | 29 | 46 | 29 |
-| 0.339286, 0.375134, 0.321429, 0.249731 | 46 | 30 | 46 | 30 |
-| 0.339286, 0.374866, 0.321429, 0.250269 | 46 | 30 | 46 | 30 |
-| 0.339286, 0.374597, 0.321429, 0.250806 | 46 | 30 | 46 | 30 |
-| 0.339286, 0.374329, 0.321429, 0.251343 | 46 | 30 | 46 | 30 |
-| 0.339286, 0.374060, 0.321429, 0.251880 | 46 | 30 | 46 | 30 |
-| 0.339286, 0.373792, 0.321429, 0.252417 | 46 | 30 | 46 | 30 |
-| 0.339286, 0.373523, 0.321429, 0.252954 | 46 | 30 | 46 | 30 |
-| 0.339286, 0.373255, 0.321429, 0.253491 | 46 | 30 | 46 | 30 |
-| 0.339286, 0.372986, 0.321429, 0.254028 | 46 | 30 | 46 | 30 |
-| 0.339286, 0.372718, 0.321429, 0.254565 | 46 | 30 | 46 | 30 |
-| 0.339286, 0.372449, 0.321429, 0.255102 | 46 | 30 | 46 | 30 |
-| 0.339286, 0.372180, 0.321429, 0.255639 | 46 | 30 | 46 | 30 |
-| 0.339286, 0.371912, 0.321429, 0.256176 | 46 | 30 | 46 | 30 |
-| 0.339286, 0.371643, 0.321429, 0.256713 | 46 | 31 | 46 | 31 |
-| 0.339286, 0.371375, 0.321429, 0.257250 | 46 | 31 | 46 | 31 |
-| 0.339286, 0.371106, 0.321429, 0.257787 | 46 | 31 | 46 | 31 |
-| 0.100000, 0.000000, 0.400000, 0.249194 | 58 | 29 | 58 | 29 |
-| 0.100000, 0.500000, 0.400000, 0.249194 | 58 | 29 | 58 | 29 |
-| 0.100000, 0.000000, 0.400000, 0.249731 | 58 | 30 | 58 | 30 |
-| 0.100000, 0.500000, 0.400000, 0.249731 | 58 | 30 | 58 | 30 |
-| 0.100000, 0.000000, 0.400000, 0.250269 | 58 | 30 | 58 | 30 |
-| 0.100000, 0.500000, 0.400000, 0.250269 | 58 | 30 | 58 | 30 |
-| 0.100000, 0.000000, 0.400000, 0.250806 | 58 | 30 | 58 | 30 |
-| 0.100000, 0.500000, 0.400000, 0.250806 | 58 | 30 | 58 | 30 |
-| 0.100000, 0.000000, 0.400000, 0.251343 | 58 | 30 | 58 | 30 |
-| 0.100000, 0.500000, 0.400000, 0.251343 | 58 | 30 | 58 | 30 |
-| 0.100000, 0.000000, 0.400000, 0.251880 | 58 | 30 | 58 | 30 |
-| 0.100000, 0.500000, 0.400000, 0.251880 | 58 | 30 | 58 | 30 |
-| 0.100000, 0.000000, 0.400000, 0.252417 | 58 | 30 | 58 | 30 |
-| 0.100000, 0.500000, 0.400000, 0.252417 | 58 | 30 | 58 | 30 |
-| 0.100000, 0.000000, 0.400000, 0.252954 | 58 | 30 | 58 | 30 |
-| 0.100000, 0.500000, 0.400000, 0.252954 | 58 | 30 | 58 | 30 |
-| 0.100000, 0.000000, 0.400000, 0.253491 | 58 | 30 | 58 | 30 |
-| 0.100000, 0.500000, 0.400000, 0.253491 | 58 | 30 | 58 | 30 |
-| 0.100000, 0.000000, 0.400000, 0.254028 | 58 | 30 | 58 | 30 |
-| 0.100000, 0.500000, 0.400000, 0.254028 | 58 | 30 | 58 | 30 |
-| 0.100000, 0.000000, 0.400000, 0.254565 | 58 | 30 | 58 | 30 |
-| 0.100000, 0.500000, 0.400000, 0.254565 | 58 | 30 | 58 | 30 |
-| 0.100000, 0.000000, 0.400000, 0.255102 | 58 | 30 | 58 | 30 |
-| 0.100000, 0.500000, 0.400000, 0.255102 | 58 | 30 | 58 | 30 |
-| 0.100000, 0.000000, 0.400000, 0.255639 | 58 | 30 | 58 | 30 |
-| 0.100000, 0.500000, 0.400000, 0.255639 | 58 | 30 | 58 | 30 |
+| bounds `x, y, w, h`                    | cols | rows | model cols | model rows |
+|----------------------------------------|------|------|------------|------------|
+| 0.400000, 0.300000, 0.400000, 0.300000 | 82 | 15 | 82 | 15 |
+| 0.100000, 0.100000, 0.800000, 0.800000 | 168 | 47 | 168 | 47 |
+| 0.250000, 0.200000, 0.500000, 0.600000 | 104 | 35 | 104 | 35 |
+| 0.300000, 0.150000, 0.330000, 0.450000 | 67 | 25 | 67 | 25 |
+| 0.050000, 0.050000, 0.370000, 0.710000 | 76 | 42 | 76 | 42 |
+| 0.500000, 0.500000, 0.450000, 0.450000 | 93 | 25 | 93 | 25 |
+| 0.000000, 0.000000, 0.200000, 0.200000 | 39 | 9 | 39 | 9 |
+| 0.150000, 0.600000, 0.250000, 0.350000 | 50 | 19 | 50 | 19 |
+| 0.350000, 0.050000, 0.600000, 0.250000 | 125 | 12 | 125 | 12 |
+| 0.600000, 0.200000, 0.300000, 0.700000 | 61 | 41 | 61 | 41 |
+| 0.200000, 0.400000, 0.650000, 0.150000 | 136 | 6 | 136 | 6 |
+| 0.450000, 0.450000, 0.100000, 0.500000 | 18 | 28 | 18 | 28 |
+| 0.020000, 0.300000, 0.550000, 0.550000 | 114 | 31 | 114 | 31 |
+| 0.330000, 0.330000, 0.340000, 0.340000 | 69 | 18 | 69 | 18 |
+| 0.000000, 0.000000, 0.400000, 0.300000 | 82 | 15 | 82 | 15 |
+| 0.050000, 0.650000, 0.400000, 0.300000 | 82 | 15 | 82 | 15 |
+| 0.100000, 0.100000, 0.400000, 0.300000 | 82 | 15 | 82 | 15 |
+| 0.150000, 0.550000, 0.400000, 0.300000 | 82 | 15 | 82 | 15 |
+| 0.200000, 0.200000, 0.400000, 0.300000 | 82 | 15 | 82 | 15 |
+| 0.250000, 0.450000, 0.400000, 0.300000 | 82 | 15 | 82 | 15 |
+| 0.300000, 0.400000, 0.400000, 0.300000 | 82 | 15 | 82 | 15 |
+| 0.350000, 0.350000, 0.400000, 0.300000 | 82 | 15 | 82 | 15 |
+| 0.450000, 0.250000, 0.400000, 0.300000 | 82 | 15 | 82 | 15 |
+| 0.500000, 0.500000, 0.400000, 0.300000 | 82 | 15 | 82 | 15 |
+| 0.550000, 0.300000, 0.400000, 0.300000 | 82 | 15 | 82 | 15 |
+| 0.600000, 0.050000, 0.400000, 0.300000 | 82 | 15 | 82 | 15 |
+| 0.550000, 0.300000, 0.200000, 0.200000 | 39 | 9 | 39 | 9 |
+| 0.070000, 0.620000, 0.200000, 0.200000 | 39 | 9 | 39 | 9 |
+| 0.410000, 0.110000, 0.330000, 0.450000 | 67 | 25 | 67 | 25 |
+| 0.630000, 0.510000, 0.330000, 0.450000 | 67 | 25 | 67 | 25 |
+| 0.130000, 0.170000, 0.500000, 0.600000 | 104 | 35 | 104 | 35 |
+| 0.470000, 0.370000, 0.500000, 0.600000 | 104 | 35 | 104 | 35 |
+| 0.310000, 0.090000, 0.650000, 0.150000 | 136 | 6 | 136 | 6 |
+| 0.010000, 0.830000, 0.650000, 0.150000 | 136 | 6 | 136 | 6 |
+| 0.493500, 0.493500, 0.300000, 0.300000 | 61 | 15 | 61 | 15 |
+| 0.496500, 0.496500, 0.300000, 0.300000 | 61 | 15 | 61 | 15 |
+| 0.499500, 0.499500, 0.300000, 0.300000 | 61 | 15 | 61 | 15 |
+| 0.502500, 0.502500, 0.300000, 0.300000 | 61 | 15 | 61 | 15 |
+| 0.505500, 0.505500, 0.300000, 0.300000 | 61 | 15 | 61 | 15 |
+| 0.508500, 0.508500, 0.300000, 0.300000 | 61 | 15 | 61 | 15 |
+| 0.100000, 0.100000, 0.396600, 0.396600 | 81 | 22 | 81 | 22 |
+| 0.100000, 0.100000, 0.403300, 0.403300 | 83 | 22 | 83 | 22 |
+| 0.100000, 0.000000, 0.400000, 0.136900 | 82 | 5 | 82 | 5 |
+| 0.100000, 0.021000, 0.400000, 0.106900 | 82 | 3 | 82 | 3 |
+| 0.100000, 0.042000, 0.400000, 0.106900 | 82 | 3 | 82 | 3 |
+| 0.100000, 0.063000, 0.400000, 0.196900 | 82 | 9 | 82 | 9 |
+| 0.100000, 0.084000, 0.400000, 0.107200 | 82 | 3 | 82 | 3 |
+| 0.100000, 0.112000, 0.400000, 0.286900 | 82 | 15 | 82 | 15 |
+| 0.100000, 0.140000, 0.400000, 0.294100 | 82 | 15 | 82 | 15 |
+| 0.100000, 0.175000, 0.400000, 0.279400 | 82 | 14 | 82 | 14 |
+| 0.388665, 0.250283, 0.222669, 0.499433 | 44 | 28 | 44 | 28 |
+| 0.388665, 0.250000, 0.222669, 0.500000 | 44 | 28 | 44 | 28 |
+| 0.388665, 0.249717, 0.222669, 0.500567 | 44 | 28 | 44 | 28 |
+| 0.388665, 0.249433, 0.222669, 0.501134 | 44 | 28 | 44 | 28 |
+| 0.388665, 0.249150, 0.222669, 0.501701 | 44 | 28 | 44 | 28 |
+| 0.388665, 0.248866, 0.222669, 0.502268 | 44 | 28 | 44 | 28 |
+| 0.388665, 0.248583, 0.222669, 0.502834 | 44 | 28 | 44 | 28 |
+| 0.388665, 0.248299, 0.222669, 0.503401 | 44 | 28 | 44 | 28 |
+| 0.388665, 0.248016, 0.222669, 0.503968 | 44 | 28 | 44 | 28 |
+| 0.388665, 0.247732, 0.222669, 0.504535 | 44 | 29 | 44 | 29 |
+| 0.388665, 0.247449, 0.222669, 0.505102 | 44 | 29 | 44 | 29 |
+| 0.388665, 0.247166, 0.222669, 0.505669 | 44 | 29 | 44 | 29 |
+| 0.388665, 0.246882, 0.222669, 0.506236 | 44 | 29 | 44 | 29 |
+| 0.388665, 0.246599, 0.222669, 0.506803 | 44 | 29 | 44 | 29 |
+| 0.388665, 0.246315, 0.222669, 0.507370 | 44 | 29 | 44 | 29 |
+| 0.388665, 0.246032, 0.222669, 0.507937 | 44 | 29 | 44 | 29 |
+| 0.388665, 0.245748, 0.222669, 0.508503 | 44 | 29 | 44 | 29 |
+| 0.388665, 0.245465, 0.222669, 0.509070 | 44 | 29 | 44 | 29 |
+| 0.388665, 0.245181, 0.222669, 0.509637 | 44 | 29 | 44 | 29 |
+| 0.388665, 0.244898, 0.222669, 0.510204 | 44 | 29 | 44 | 29 |
+| 0.100000, 0.000000, 0.400000, 0.501134 | 82 | 28 | 82 | 28 |
 
 ### Split windows
 

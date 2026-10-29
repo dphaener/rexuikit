@@ -17,17 +17,19 @@ import (
 // x=0.55). TestChromeConstantsMatchBehaviorsDoc fails if these drift from the
 // document, and the live TestLayerChromeDelta re-proves the document against
 // Rex. W5.T2 injects these same values into the generated Lua.
+//
+// The values are fit to a 210x60 window at 14x28 px cells. They do not hold
+// at the 7x14 px cells the earlier fit used; see the document.
 const (
 	// FramePxCols and FramePxRows turn a window's cell count into its
-	// pixel extent: P = cells * cell_px + frame_px. The rows value is not a
-	// whole number of cells (130 rows at 14 px span 1866 px, not 1862), so
-	// the offset is in pixels.
-	FramePxCols = 21
-	FramePxRows = 46
+	// pixel extent: P = cells * cell_px + frame_px. The offset is in pixels,
+	// not cells: at 14 px cells, 52 px is 3.7 cells.
+	FramePxCols = 52
+	FramePxRows = 110
 	// BorderPxCols and BorderPxRows are the pixels the border and title bar
 	// take out of a layer.
-	BorderPxCols = 20
-	BorderPxRows = 46
+	BorderPxCols = 40
+	BorderPxRows = 92
 	// EdgeRounding is how each layer edge is rounded to a pixel, and
 	// SizeRounding how the remaining pixels become cells.
 	EdgeRounding = "round"
@@ -38,16 +40,9 @@ const (
 // forward model needs, per axis. They are not chrome; rex-behaviors.md
 // `### Inverse for BoundsForCells` records them and why.
 //
-// The rows margin was added when rows were under-determined: a centred
-// 46x30 layer over 149x130 at 7x14 px (W6.T2) spanned exactly 30*14 + 44 px
-// and the app gave 29 rows where the old model (1862 px, border 44) said 30.
-// The review-fix re-measure (96 samples, rows swept in single pixels) pins
-// rows to one model, FramePxRows and BorderPxRows above, which reproduces
-// that 29. The 5 px stay because that fit, like the cols one, comes from a
-// single window and cell size: they absorb a frame or border a few pixels
-// off on another window. 5 px is under one row, so the layer never gets a
-// row more than asked. Cols were pinned to one model from the start and
-// include zero-spare samples the app honoured, so they keep none.
+// The margins were set against the 7x14 px fit. They have not been re-checked
+// against the 14x28 px fit above. The 5 px rows margin is under one row, so
+// the layer never gets a row more than asked. The cols margin is zero.
 const (
 	InverseMarginPxCols = 0
 	InverseMarginPxRows = 5
