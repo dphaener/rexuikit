@@ -5,14 +5,7 @@
 // form host, list, info panel) whose every rendered cell carries an explicit
 // background.
 //
-// rexuikit is its own Go module (github.com/dphaener/rexuikit) inside the forge
-// repository so it can be extracted later. That is why it must never import
-// forge's internal/ packages: an import of them would make the extraction
-// impossible and would not even compile from outside the forge module.
-//
-// forge consumes rexuikit through a replace directive in its go.mod. Editors
-// (gopls) need a local, gitignored go.work spanning both modules to resolve
-// the two together:
-//
-//	go work init . ./rexuikit
+// rexuikit is a standalone Go module (github.com/dphaener/rexuikit). It must
+// never import application-private packages from the programs that use it:
+// the module would stop building outside them.
 package rexuikit

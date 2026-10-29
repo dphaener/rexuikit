@@ -1,12 +1,12 @@
 # rexuikit
 
-rexuikit is the Go toolkit that draws forge's quick actions as Rex floating
-layers. It has a typed client for Rex's control protocol, surfaces that open,
-size and place layers, a fast-path entry router, and a native content kit.
+rexuikit is a Go toolkit for building Rex floating layers. It has a typed client
+for Rex's control protocol, surfaces that open, size and place layers, a
+fast-path entry router, and a native content kit.
 
-It is a separate Go module, `github.com/dphaener/rexuikit`, kept in the forge
-repo so it can be extracted later. For a Rex-facing component, make every Rex
-call through `client`. Don't shell out to the `rex` CLI.
+It is a standalone Go module, `github.com/dphaener/rexuikit`. For a Rex-facing
+component, make every Rex call through `client`. Don't shell out to the `rex`
+CLI.
 
 ## Packages
 
@@ -121,30 +121,12 @@ in `## Layer chrome` from the output, then run `make -C rexuikit live`.
 `rexuikit/scripts/measure-ttfp.lua` times a layer from open until a marker is
 on screen. It is the method behind the TTFP numbers.
 
-## Editor setup
+## Consumers
 
-gopls needs both modules in one graph. From the repo root, run:
-
-```
-go work init . ./rexuikit
-```
-
-This writes `go.work` and `go.work.sum`, both gitignored. Delete them if a
-root build starts resolving differently, since a `go.work` changes module
-resolution for every `go` command in that checkout.
-
-## Extraction
-
-Moving rexuikit to its own repository needs three things.
-
-- Keep it free of forge's `internal/` imports. Otherwise it stops building
-  outside forge.
-- Forge links to it only through the root `go.mod` line
-  `replace github.com/dphaener/rexuikit => ./rexuikit`. After extraction, drop the
-  replace and require a tagged version.
-- Forge-specific policy stays in forge: which actions warm, the generated Lua,
-  and forge's state paths. `surface` currently exports `PrewarmDir` and
-  `ContextPath`, which the Lua mirrors. Moving them is a later decision.
+Applications import this module by tagged version. Keep application policy in
+the application: which actions warm, generated Lua, and state paths. `surface`
+currently exports `PrewarmDir` and `ContextPath`, which forge's generated Lua
+mirrors. Moving them is a later decision.
 
 Rex is a 0.0.x beta. The live suite is the contract. Run it after every Rex
 upgrade, and treat a failure as a Rex change, not a rexuikit bug.

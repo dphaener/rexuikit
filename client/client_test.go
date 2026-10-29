@@ -22,7 +22,7 @@ import (
 	"github.com/dphaener/rexuikit/client/clienttest"
 )
 
-const realSocket = "/Users/darinhaener/Library/Application Support/rex/server.sock"
+const realSocket = "/Users/alice/Library/Application Support/rex/server.sock"
 
 func dial(t *testing.T, srv *clienttest.Server, opts client.Options) *client.Client {
 	t.Helper()
@@ -84,7 +84,7 @@ func TestSocketPath(t *testing.T) {
 		want    string
 		wantErr bool
 	}{
-		{"real macOS path", "unix:///Users/darinhaener/Library/Application%20Support/rex/server.sock", realSocket, false},
+		{"real macOS path", "unix:///Users/alice/Library/Application%20Support/rex/server.sock", realSocket, false},
 		{"unencoded path", "unix:///tmp/rex.sock", "/tmp/rex.sock", false},
 		{"decodes once", "unix:///tmp/a%2520b.sock", "/tmp/a%20b.sock", false},
 		{"not unix", "http://localhost:1234", "", true},
@@ -114,7 +114,7 @@ func TestServerAddr(t *testing.T) {
 		wantErr  bool
 	}{
 		{"REX_SERVER wins", map[string]string{"REX_SERVER": "unix:///tmp/x%20y.sock", "HOME": "/Users/nobody"}, "/tmp/x y.sock", false},
-		{"default socket", map[string]string{"HOME": "/Users/darinhaener"}, realSocket, false},
+		{"default socket", map[string]string{"HOME": "/Users/alice"}, realSocket, false},
 		{"nothing set", map[string]string{}, "", true},
 	}
 	for _, tt := range tests {
