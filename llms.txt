@@ -1,0 +1,21 @@
+# rexuikit
+
+> A Go toolkit for terminal programs that run as floating layers in Rex. It has a client for Rex's
+> control connection, a surface package that opens and places layers, a UI kit of Bubble Tea
+> components, and a fast-path entry router. Every Rex call goes through the client, never the rex CLI.
+
+## Usage
+
+- [Client](docs/usage/client.md): connect to Rex, call methods, read events
+- [Surfaces](docs/usage/surface.md): open a modal, drawer or split; resize, raise and close it
+- [Warm surfaces](docs/usage/surface-warm.md): pre-render a program and place it instantly
+- [Forms](docs/usage/ui-forms.md): build a form and read its submitted values
+- [UI components](docs/usage/ui-components.md): lists, dialogs, info panels, panes, tabs, hints, notices
+- [Entry](docs/usage/entry.md): fast-path quick actions and time to first paint
+- [Testing](docs/usage/testing.md): fake Rex server, golden frames, live tests
+
+## Reference
+
+- [Rex behaviors](docs/rex-behaviors.md): Rex behaviors rexuikit relies on, each with a live test
+- [Rex API](docs/rex-api/llms-r7.md): the control protocol, API revision 7
+- [Agent guide](AGENTS.md): rules, package map, gotchas, commands
